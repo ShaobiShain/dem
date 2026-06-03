@@ -1,3 +1,6 @@
+# Магазин обуви — клиентское приложение (PyQt6 + MySQL).
+# Файл: интерфейс, работа с БД, оформление по руководству стиля.
+
 import os
 import shutil
 import sys
@@ -16,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from db import get_connection
 
+# Пути к ресурсам: в .exe — рядом с программой и во временной папке PyInstaller
 if getattr(sys, 'frozen', False):
     _BUNDLE = sys._MEIPASS
     _DATA   = os.path.dirname(sys.executable)
@@ -31,6 +35,7 @@ PICTURE_PNG   = os.path.join(RESOURCES_DIR, "picture.png")
 
 
 def _find_photo(file_name: str) -> str:
+    # Ищем фото товара; если нет — подставляем заглушку picture.png
     p = os.path.join(PHOTOS_DIR, file_name)
     if os.path.exists(p):
         return p
@@ -39,15 +44,17 @@ def _find_photo(file_name: str) -> str:
         return p2
     return PICTURE_PNG
 
-COLOR_WHITE         = "#FFFFFF"   # основной фон
-COLOR_SECOND        = "#ABCFCE"   # дополнительный фон
-COLOR_ACCENT        = "#546F94"   # акцент (целевые действия)
-COLOR_DISCOUNT_HIGH = "#23E1EF"   # скидка > 25%
-COLOR_ZERO_STOCK    = "#ABCFCE"   # нет на складе — доп. фон
-COLOR_TEXT          = "#000000"   # текст везде чёрный
-DISCOUNT_THRESHOLD  = 25
+# Цвета и шрифт по руководству стиля (Comic Sans MS, белый фон и т.д.)
+COLOR_WHITE         = "#FFFFFF"
+COLOR_SECOND        = "#ABCFCE"
+COLOR_ACCENT        = "#546F94"
+COLOR_DISCOUNT_HIGH = "#23E1EF"
+COLOR_ZERO_STOCK    = "#ABCFCE"
+COLOR_TEXT          = "#000000"
+DISCOUNT_THRESHOLD  = 25   # подсветка строки в таблице, если скидка больше этого %
 FONT_FAMILY         = "Comic Sans MS"
 
+# Варианты фильтра на главном окне (только менеджер/админ)
 DISCOUNT_RANGES = [
     "Все диапазоны",
     "0–10.99%",
@@ -55,6 +62,8 @@ DISCOUNT_RANGES = [
     "25% и более",
 ]
 
+
+# --- Оформление окон и кнопок ---
 
 def app_font(size: int = 11) -> QFont:
     return QFont(FONT_FAMILY, size)
@@ -146,6 +155,7 @@ def logo_pixmap(max_w: int = 160, max_h: int = 90) -> QPixmap | None:
 
 
 def apply_dialog_chrome(dialog: QDialog, header_text: str) -> QVBoxLayout:
+    # Общий вид диалога: фон, иконка, заголовок на форме
     dialog.setStyleSheet(
         f"QDialog {{ background-color: {COLOR_WHITE}; color: {COLOR_TEXT}; "
         f'font-family: "{FONT_FAMILY}"; }}'
@@ -156,6 +166,7 @@ def apply_dialog_chrome(dialog: QDialog, header_text: str) -> QVBoxLayout:
     return root
 
 
+# Кто вошёл в систему (после авторизации или как гость)
 @dataclass
 class UserInfo:
     user_id: int | None
@@ -171,9 +182,11 @@ def show_warn(parent, text):
     QMessageBox.warning(parent, "Предупреждение", text)
 
 
+# Все запросы к MySQL — без UI, только данные
 class DataService:
     @staticmethod
     def auth(login: str, password: str):
+        # Проверка логина и пароля, возврат роли из БД
         conn = get_connection()
         try:
             cur = conn.cursor(dictionary=True)
@@ -369,6 +382,7 @@ class DataService:
 
     @staticmethod
     def parse_article_pairs(text: str):
+        # В заказе артикулы через запятую парами: A123, 2, B456, 1
         tokens = [x.strip() for x in (text or "").split(",") if x.strip()]
         if len(tokens) < 2 or len(tokens) % 2 != 0:
             raise ValueError("Артикулы задаются парами: артикул, количество.")
@@ -385,6 +399,7 @@ class DataService:
 
     @staticmethod
     def save_order(model: dict):
+        # Новый заказ или правка: шапка в orders, позиции в order_items
         conn = get_connection()
         try:
             pairs = DataService.parse_article_pairs(model["article_text"])
@@ -405,6 +420,7 @@ class DataService:
                      model["pickup_point_id"], model["status_id"], model["order_id"]),
                 )
                 order_id = model["order_id"]
+                # При редактировании пересобираем состав заказа
                 cur.execute("DELETE FROM order_items WHERE order_id=%s", (order_id,))
             else:
                 cur.execute(
@@ -436,6 +452,7 @@ class DataService:
             conn.close()
 
 
+# Окно входа: пользователь из БД или гость без прав админа
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
@@ -483,8 +500,8 @@ class LoginDialog(QDialog):
         self.accept()
 
 
+# Карточка товара: добавление (product_id=None) или редактирование
 class ProductFormDialog(QDialog):
-    """В5: поставщик = dropdown, производитель = dropdown (оба из БД)."""
     def __init__(self, product_id=None):
         super().__init__()
         self.product_id = product_id
@@ -509,8 +526,8 @@ class ProductFormDialog(QDialog):
         self.category_combo     = QComboBox()
         self.description_edit   = QTextEdit()
         self.description_edit.setFixedHeight(90)
-        self.manufacturer_combo = QComboBox()   # dropdown
-        self.supplier_combo     = QComboBox()   # dropdown
+        self.manufacturer_combo = QComboBox()
+        self.supplier_combo     = QComboBox()
         self.price_edit         = QLineEdit()
         self.unit_edit          = QLineEdit()
         self.stock_edit         = QLineEdit()
@@ -646,6 +663,7 @@ class ProductFormDialog(QDialog):
 
         photo_file = self.old_photo_file
         if self.selected_photo_path:
+            # Новое фото копируем в resources/photos, старое при замене удаляем
             os.makedirs(PHOTOS_DIR, exist_ok=True)
             ext = os.path.splitext(self.selected_photo_path)[1].lower() or ".png"
             new_name = f"uploaded_{uuid.uuid4().hex}{ext}"
@@ -680,6 +698,7 @@ class ProductFormDialog(QDialog):
         self.accept()
 
 
+# Форма заказа; поле «Артикул» — строка пар артикул,количество
 class OrderFormDialog(QDialog):
     def __init__(self, order_id=None):
         super().__init__()
@@ -784,6 +803,7 @@ class OrderFormDialog(QDialog):
         self.accept()
 
 
+# Список заказов; кнопки изменения только у администратора
 class OrdersDialog(QDialog):
     def __init__(self, user_data: UserInfo, parent=None):
         super().__init__(parent)
@@ -818,6 +838,7 @@ class OrdersDialog(QDialog):
         root.addWidget(self.table)
 
         is_admin = self.user_data.role_name == "Администратор"
+        # Гость и клиент заказы только просматривают (если вообще откроют окно)
         self.btn_add.setVisible(is_admin)
         self.btn_edit.setVisible(is_admin)
         self.btn_delete.setVisible(is_admin)
@@ -878,6 +899,7 @@ class OrdersDialog(QDialog):
         self.load_orders()
 
 
+# Главное окно: каталог товаров, фильтры, роль пользователя
 class ProductsWindow(QMainWindow):
     def __init__(self, user_data: UserInfo):
         super().__init__()
@@ -905,7 +927,7 @@ class ProductsWindow(QMainWindow):
         pix = logo_pixmap()
         if pix is not None:
             logo.setPixmap(pix)
-        title = make_title_label("ООО «Обувь» — Список товаров", 26)
+        title = make_title_label(" «ЧитайГород» - магазин по продаже книг.", 26)
         self.role_label = QLabel(f"Роль: {self._role_caption(user_data.role_name)}")
         self.user_label = QLabel(f"Пользователь: {user_data.full_name}")
         self.btn_orders = QPushButton("Заказы")
@@ -992,6 +1014,7 @@ class ProductsWindow(QMainWindow):
         return self.user_data.role_name in ("Менеджер", "Администратор")
 
     def apply_role_rules(self):
+        # Клиент видит только таблицу; менеджер — фильтры; админ — ещё кнопки товаров
         self.filter_wrap.setVisible(self.is_manager_or_admin())
         self.admin_wrap.setVisible(self.is_admin())
         self.btn_orders.setVisible(self.is_manager_or_admin())
@@ -1043,6 +1066,7 @@ class ProductsWindow(QMainWindow):
         self.fill_table(data)
 
     def fill_table(self, rows):
+        # Раскраска строк: большая скидка, нулевой остаток; старая цена зачёркнута
         self.table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             pix = self.photo_pixmap(row.get("photo_file") or "")
@@ -1066,6 +1090,7 @@ class ProductsWindow(QMainWindow):
             for c, v in enumerate(values, start=1):
                 self.table.setItem(i, c, QTableWidgetItem(v))
 
+            # id товара прячем в ячейке «Артикул» — для редактирования и удаления
             self.table.item(i, 1).setData(Qt.ItemDataRole.UserRole, row["product_id"])
 
             price_item = self.table.item(i, 7)
@@ -1138,6 +1163,7 @@ class ProductsWindow(QMainWindow):
             show_warn(self, "Выберите товар для удаления.")
             return
         if DataService.product_exists_in_orders(product_id):
+            # Нельзя удалить товар, если он уже есть в заказе
             show_warn(self, "Товар присутствует в заказе. Удаление невозможно.")
             return
         if QMessageBox.question(self, "Подтверждение", "Удалить выбранный товар?") != QMessageBox.StandardButton.Yes:
@@ -1154,6 +1180,7 @@ class ProductsWindow(QMainWindow):
             OrdersDialog(self.user_data, self).exec()
 
     def logout(self):
+        # Закрываем главное окно и снова показываем вход
         self.close()
         login = LoginDialog()
         if login.exec():
@@ -1161,6 +1188,7 @@ class ProductsWindow(QMainWindow):
             self.next_window.show()
 
 
+# Точка входа: вход - главное окно
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
